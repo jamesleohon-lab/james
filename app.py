@@ -8,6 +8,7 @@ from tkinter import filedialog, ttk
 
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 sys.path.insert(0, str(Path(__file__).parent))
 from monitor import (
@@ -52,6 +53,9 @@ class App(tk.Tk):
         self.csv_rows: list[dict] = []
         self.current_saved: dict = self.cfg.get("saved_copy", {})
         self._result_labels: list[tk.Label] = []   # for resize wraplength update
+        self._results: list[tuple] = []            # (url, live, saved, mismatches, error) for export
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # set = running, cleared = paused
 
         self.title("Site Monitor")
         self.configure(bg=BG)
@@ -136,6 +140,20 @@ class App(tk.Tk):
         url_entry.grid(row=0, column=2, sticky="ew", ipady=8)
         url_entry.bind("<Return>", lambda _: self._run_single())
         toolbar.columnconfigure(2, weight=1)
+
+        self._pause_btn = tk.Button(toolbar, text="Pause",
+                                    font=("Arial", 11, "bold"), bg="#f59e0b", fg=WHITE,
+                                    relief="flat", padx=14, pady=8, cursor="hand2",
+                                    activebackground="#d97706", activeforeground=WHITE,
+                                    state="disabled", command=self._toggle_pause)
+        self._pause_btn.grid(row=0, column=3, padx=(12, 8))
+
+        self._export_btn = tk.Button(toolbar, text="Export Results",
+                                     font=("Arial", 11, "bold"), bg="#555", fg=WHITE,
+                                     relief="flat", padx=14, pady=8, cursor="hand2",
+                                     activebackground="#333", activeforeground=WHITE,
+                                     state="disabled", command=self._export_results)
+        self._export_btn.grid(row=0, column=4)
 
         self._last_checked_var = tk.StringVar(value="Not checked yet")
         tk.Label(toolbar, textvariable=self._last_checked_var, font=("Arial", 10),
@@ -377,6 +395,8 @@ class App(tk.Tk):
             email_note = "No email — copy doesn't match yet."
 
         def update():
+            self._results = [(url, live, saved, mismatches, error)]
+            self._export_btn.config(state="normal")
             self._render_result(url, live, saved, mismatches, error)
             now = datetime.now().strftime("%d %b %Y, %H:%M:%S")
             self._last_checked_var.set(f"Last checked: {now}")
@@ -386,19 +406,33 @@ class App(tk.Tk):
 
         self.after(0, update)
 
+    def _toggle_pause(self):
+        if self._pause_event.is_set():
+            self._pause_event.clear()
+            self._pause_btn.config(text="Resume")
+            self._status_var.set("Paused — click Resume to continue, or Export Results for what's checked so far.")
+        else:
+            self._pause_event.set()
+            self._pause_btn.config(text="Pause")
+            self._status_var.set("Resumed…")
+
     def _run_all(self):
         if not self.csv_rows:
             return
         self._run_btn.config(state="disabled")
         self._run_all_btn.config(state="disabled", text="Running…")
+        self._pause_event.set()
+        self._pause_btn.config(state="normal", text="Pause")
+        self._export_btn.config(state="disabled")
         self._status_var.set(f"Starting bulk check of {len(self.csv_rows)} URLs…")
         self._clear_results()
+        self._results = []
         threading.Thread(target=self._do_bulk, daemon=True).start()
 
     def _do_bulk(self):
-        results = []
         total = len(self.csv_rows)
         for i, row in enumerate(self.csv_rows):
+            self._pause_event.wait()  # blocks here while paused
             url = row.get("URL", "").strip()
             saved = {
                 "title": row.get("Title", "").strip(),
@@ -414,11 +448,12 @@ class App(tk.Tk):
             except Exception as e:
                 live, mismatches, error = {}, [], str(e)
 
-            results.append((url, live, saved, mismatches, error))
+            self._results.append((url, live, saved, mismatches, error))
             self.after(0, self._render_result, url, live, saved, mismatches, error)
+            self.after(0, lambda: self._export_btn.config(state="normal"))
 
         # Send email only if at least one URL matched
-        matched_results = [(u, l, s, m, e) for u, l, s, m, e in results if not m and not e]
+        matched_results = [(u, l, s, m, e) for u, l, s, m, e in self._results if not m and not e]
         matches = len(matched_results)
         if matched_results:
             try:
@@ -432,12 +467,13 @@ class App(tk.Tk):
             email_note = "No email — no URLs matched yet."
 
         def done():
-            matches = sum(1 for _, _, _, m, e in results if not m and not e)
+            matches = sum(1 for _, _, _, m, e in self._results if not m and not e)
             now = datetime.now().strftime("%d %b %Y, %H:%M:%S")
             self._last_checked_var.set(f"Last checked: {now}")
             self._status_var.set(f"Done — {matches}/{total} matched  ·  {email_note}")
             self._run_btn.config(state="normal")
             self._run_all_btn.config(state="normal", text=f"Run All ({total})")
+            self._pause_btn.config(state="disabled", text="Pause")
 
         self.after(0, done)
 
@@ -511,6 +547,61 @@ class App(tk.Tk):
   </table>
 </body>
 </html>"""
+
+    # ── Export ────────────────────────────────────────────────────────────────
+
+    def _export_results(self):
+        if not self._results:
+            self._status_var.set("No results to export yet.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Export results",
+            defaultextension=".xlsx",
+            initialfile="site-monitor-results.xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+        )
+        if not path:
+            return
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Results"
+
+        headers = ["URL", "Result", "Error"]
+        for _, label in FIELDS:
+            headers += [f"{label} (Live)", f"{label} (Saved)", f"{label} Match"]
+
+        header_fill = PatternFill("solid", fgColor="1A1A1A")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        for ci, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=ci, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(vertical="center")
+            ws.column_dimensions[get_column_letter(ci)].width = 45 if ci == 1 else 28
+        ws.row_dimensions[1].height = 22
+
+        match_fill = PatternFill("solid", fgColor="EDFAF1")
+        mismatch_fill = PatternFill("solid", fgColor="FDECEA")
+
+        for ri, (url, live, saved, mismatches, error) in enumerate(self._results, start=2):
+            all_match = not mismatches and not error
+            result_text = "Error" if error else ("Match" if all_match else "Mismatch")
+            row_vals = [url, result_text, error]
+            for key, _ in FIELDS:
+                row_vals += [
+                    live.get(key, ""),
+                    saved.get(key, ""),
+                    "" if error else ("Yes" if key not in mismatches else "No"),
+                ]
+            for ci, val in enumerate(row_vals, start=1):
+                cell = ws.cell(row=ri, column=ci, value=val)
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+            ws.cell(row=ri, column=2).fill = match_fill if all_match else mismatch_fill
+            ws.row_dimensions[ri].height = 30
+
+        wb.save(path)
+        self._status_var.set(f"Results exported to {path}")
 
     # ── Resize ────────────────────────────────────────────────────────────────
 
