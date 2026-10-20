@@ -1,0 +1,5 @@
+fastapi==0.156.2
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+APScheduler==3.11.3
+tzdata>=2024.1

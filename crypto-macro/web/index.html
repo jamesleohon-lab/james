@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en-GB" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Crypto Macro</title>
+  <meta name="description" content="Macro calendar with crypto volatility alerts">
+  <meta name="theme-color" content="#0f1216">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Crypto Macro">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Crypto Macro</div>
+    <button id="theme-toggle" class="icon-btn" aria-label="Toggle light/dark">◐</button>
+  </header>
+
+  <section id="next" class="next" hidden>
+    <div class="next-label">Next event</div>
+    <div class="next-title"><span id="next-impact" class="impact"></span><span id="next-name"></span></div>
+    <div class="next-row">
+      <span id="next-when"></span>
+      <span id="next-countdown" class="countdown"></span>
+    </div>
+  </section>
+
+  <section class="filters" aria-label="Filters">
+    <div class="week-nav">
+      <button id="prev-week" class="chip" aria-label="Previous week">‹</button>
+      <span id="week-label">This week</span>
+      <button id="next-week" class="chip" aria-label="Next week">›</button>
+    </div>
+    <div id="currency-chips" class="chips" role="group" aria-label="Currencies"></div>
+    <div class="impact-filter" role="radiogroup" aria-label="Minimum impact">
+      <button class="chip" data-impact="high"><span class="impact high"></span>High</button>
+      <button class="chip" data-impact="medium"><span class="impact medium"></span>Med+</button>
+      <button class="chip" data-impact="low"><span class="impact low"></span>All</button>
+    </div>
+  </section>
+
+  <main id="calendar" class="calendar" aria-live="polite"></main>
+
+  <footer class="foot">
+    <p id="feed-status"></p>
+    <p>Times shown in UK time (Europe/London). Impact scores estimate likely
+      volatility, not price direction. Not financial advice.</p>
+  </footer>
+
+  <dialog id="login">
+    <form method="dialog" id="login-form">
+      <h2>Crypto Macro</h2>
+      <label>Passcode <input id="passcode" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="error"></p>
+      <button type="submit" class="primary">Unlock</button>
+    </form>
+  </dialog>
+
+  <template id="row-tpl">
+    <article class="row">
+      <div class="time"></div>
+      <div class="cur"></div>
+      <div class="imp"><span class="impact"></span></div>
+      <div class="name"></div>
+      <dl class="vals">
+        <div><dt>Actual</dt><dd class="actual"></dd></div>
+        <div><dt>Fcst</dt><dd class="forecast"></dd></div>
+        <div><dt>Prev</dt><dd class="previous"></dd></div>
+      </dl>
+    </article>
+  </template>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
